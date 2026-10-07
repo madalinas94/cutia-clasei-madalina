@@ -107,6 +107,11 @@
       <button type="submit" class="primary big"><span id="auth-submit"></span> <span class="kbd">↵</span></button>
       <p id="login-error" class="error" role="alert"></p>
       <p id="login-info" class="login-info hidden" role="status"></p>
+      <div id="demo-box" class="demo-box hidden">
+        <b data-i18n="login.demoTitle"></b>
+        <p id="demo-lead" class="small muted"></p>
+        <div id="demo-accounts" class="row"></div>
+      </div>
       <div id="google-wrap" class="hidden">
         <div class="divider" data-i18n="login.or"></div>
         <div id="google-btn"></div>
@@ -217,6 +222,7 @@
           <div id="topic-hint" class="topic-hint"></div>
           <div class="row">
             <label class="check"><input type="checkbox" id="question-anon"> <span data-i18n="q.anon"></span></label>
+            <label class="check"><input type="checkbox" id="question-faq"> <span data-i18n="q.faqOk"></span></label>
             <button type="submit" class="primary"><span data-i18n="q.send"></span> <span class="kbd">Ctrl ↵</span></button>
           </div>
         </form>
@@ -372,6 +378,12 @@
               <p id="refine-notes" class="muted small"></p>
             </div>
 
+            <div id="diff-box" class="diff-box hidden">
+              <div class="ai-tag mono" data-i18n="p.diffTitle"></div>
+              <p id="diff-text" class="diff-text"></p>
+              <p class="muted small" data-i18n="p.diffLegend"></p>
+            </div>
+
             <div id="missing-box" class="missing hidden">
               <div class="ai-tag mono" data-i18n="p.needs"></div>
               <div id="missing-list"></div>
@@ -407,6 +419,8 @@
             <option value="new" data-i18n="p.sortNew"></option>
             <option value="chosen" data-i18n="p.sortChosen"></option>
           </select>
+          <button type="button" id="projector-btn" class="small trainer-only" data-i18n="p.projector"></button>
+          <button type="button" id="export-btn" class="small ghost trainer-only" data-i18n="p.export"></button>
         </div>
         <div id="proposals-list" class="list"></div>
       </section>
@@ -633,5 +647,6 @@
   <script src="i18n/core.js"></script>
   <script src="app.js"></script>
   <script type="module" src="intro.js"></script>
+<div id="projector" class="projector hidden" role="dialog" aria-modal="true" aria-labelledby="proj-title"></div>
 </body>
 </html>

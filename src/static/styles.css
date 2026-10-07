@@ -1326,3 +1326,42 @@ button.kick { border-color: color-mix(in srgb, var(--a4) 50%, transparent); }
 .faq-item summary { cursor: pointer; font-weight: 600; }
 .faq-item[open] summary { margin-bottom: .5rem; }
 @media (max-width: 720px) { .recap-stats { grid-template-columns: repeat(2, 1fr); } }
+
+/* ---------------------------------------------------------------- Aplicația combinată (idei de la Alexandra și Andrei) */
+
+/* Diff pe cuvinte la retușul AI */
+.diff-box { border: 1px solid var(--border); border-radius: 14px; padding: .8rem 1rem; margin: .8rem 0; background: var(--surface); }
+.diff-text { line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; margin: .4rem 0; }
+.diff-text del { color: var(--error); text-decoration: line-through; opacity: .8; }
+.diff-text ins { text-decoration: none; background: var(--ok-soft); color: var(--ok); border-radius: 4px; padding: 0 .15em; }
+
+/* FAQ cu acord */
+.tag.faq-tag { color: var(--a2); border-color: color-mix(in srgb, var(--a2) 40%, transparent); }
+
+/* Statusul propunerilor */
+.status.dec-discussing { color: var(--a2); background: color-mix(in srgb, var(--a2) 12%, transparent); }
+.status.dec-rejected { color: var(--muted); background: var(--surface-2); }
+.dec-wrap { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; flex: 1 1 100%; }
+.dec-seg button.on { background: var(--btn-bg); color: var(--btn-ink); }
+.dec-note { display: flex; gap: .4rem; flex: 1 1 260px; min-width: 0; }
+.dec-note input { flex: 1; min-width: 0; }
+.trainer-note { border-left: 3px solid var(--a1); padding: .35rem .7rem; margin: .5rem 0; color: var(--text); background: var(--surface-2); border-radius: 0 10px 10px 0; }
+
+/* Mod proiector */
+.projector { position: fixed; inset: 0; z-index: 90; background: var(--bg); color: var(--text); display: flex; flex-direction: column; gap: 1.2rem;
+  padding: max(2rem, env(safe-area-inset-top)) clamp(1.2rem, 6vw, 6rem) 2rem; overflow-y: auto; }
+.projector h1 { font-family: var(--serif); font-weight: 400; font-size: clamp(2.4rem, 6vw, 5rem); line-height: 1.05; margin: 0; text-wrap: balance; }
+.proj-top { display: flex; gap: .8rem; align-items: center; }
+.proj-top .proj-close { margin-left: auto; }
+.proj-top .right { margin-left: 0; }
+.proj-line { font-size: clamp(1.1rem, 2.2vw, 1.7rem); line-height: 1.45; max-width: 60ch; margin: 0; }
+.proj-line b { color: var(--muted); font-weight: 600; margin-right: .4em; }
+.proj-foot { display: flex; flex-wrap: wrap; gap: 1.2rem; align-items: center; margin-top: auto; }
+.proj-votes { font-size: 2rem; color: var(--a1); }
+.proj-foot .row { margin-left: auto; }
+.proj-empty { font-size: 1.5rem; margin: auto; }
+body.proj-open { overflow: hidden; }
+
+/* Mod demo pe pagina de intrare */
+.demo-box { border: 1px dashed var(--border-strong); border-radius: 14px; padding: .8rem 1rem; display: grid; gap: .4rem; }
+.demo-box .row { flex-wrap: wrap; gap: .4rem; }

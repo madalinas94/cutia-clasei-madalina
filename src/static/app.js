@@ -343,6 +343,15 @@ function renderLogin() {
   $("#auth-hint").textContent = up ? t(cfg.supabase ? "login.hintSupabase" : "login.hintNew") : "";
   $("#auth-submit").textContent = t({ up: "login.create", reset: "login.resetSave", code: "login.codeSave" }[authMode] || "login.submit");
   $("#forgot").classList.toggle("hidden", up || special || !!cfg.supabase);
+  // Mod demo: conturile de test, la un click
+  $("#demo-box").classList.toggle("hidden", !cfg.demo || special);
+  if (cfg.demo) {
+    $("#demo-lead").textContent = t("login.demoLead", cfg.demo.password);
+    $("#demo-accounts").replaceChildren(...cfg.demo.accounts.map((d) => el("button", { type: "button", class: "small ghost", onclick: () => {
+      authMode = "in"; renderLogin();
+      $("#login-email").value = d.email; $("#login-password").value = cfg.demo.password; $("#login-password").focus();
+    } }, `${d.name} · ${t("role." + d.role)}`)));
+  }
   $("#forgot-supa").classList.toggle("hidden", up || special || !cfg.supabase);
   $("#secured-by").classList.toggle("hidden", !cfg.supabase);
   renderMarquee();
@@ -1130,9 +1139,10 @@ $("#question-form").addEventListener("submit", async (e) => {
   try {
     const q = await api("/api/questions", {
       method: "POST",
-      body: { text: $("#question-text").value, category: selectedTopic, anonymous: $("#question-anon").checked },
+      body: { text: $("#question-text").value, category: selectedTopic, anonymous: $("#question-anon").checked, faq_ok: $("#question-faq").checked },
     });
     $("#question-text").value = "";
+    $("#question-faq").checked = false;
     clearLocalDraft("#question-text");
     toast(t("q.sent"));
     await loadQuestions();
@@ -1205,6 +1215,7 @@ function questionCard(q) {
     isTrainer() ? el("strong", {}, q.anonymous ? t("q.anonTag") : q.author) : null,
     topicChip(q.category),
     !isTrainer() && q.anonymous ? el("span", { class: "tag" }, t("q.anonTag")) : null,
+    q.faq_ok ? el("span", { class: "tag faq-tag" }, t("q.faqTag")) : null,
     el("span", {}, timeAgo(q.created_at)),
     el("span", { class: `right status ${q.answer ? "ok" : "open"}` }, t(q.answer ? "q.statusOk" : "q.statusOpen")));
   const card = el("article", { class: "item" }, head, el("p", { class: "item-text" }, q.text));
@@ -1219,6 +1230,17 @@ function questionCard(q) {
     card.append(el("div", { class: "ai-answer" }, el("div", { class: "label" }, t("q.ai")), renderMd(q.ai_answer)));
   } else if (aiPending.has(q.id)) {
     card.append(el("div", { class: "ai-loading" }, "› ", t("q.aiThinking"), el("span", { class: "dots" })));
+  }
+
+  // Acordul pentru FAQ îl dă (sau îl retrage) doar autorul
+  if (!isTrainer() && q.mine) {
+    card.append(el("div", { class: "actions" }, el("button", { type: "button", class: "small ghost", onclick: async () => {
+      try {
+        await api(`/api/questions/${q.id}/faq-consent`, { method: "POST", body: { faq_ok: !q.faq_ok } });
+        toast(t(q.faq_ok ? "q.faqRevoked" : "q.faqAllowed"));
+        loadQuestions();
+      } catch (err) { toast(err.message); }
+    } }, t(q.faq_ok ? "q.faqRevoke" : "q.faqAllow"))));
   }
 
   if (!isTrainer() && !q.answer) {
@@ -1258,6 +1280,12 @@ function questionCard(q) {
       el("button", { class: "small", onclick: () => { form.classList.toggle("hidden"); area.focus(); } }, t(q.answer ? "q.edit" : "q.reply")));
     if (cfg.ai && !q.ai_answer && !aiPending.has(q.id)) {
       actions.append(el("button", { class: "small ghost", onclick: () => requestAiAnswer(q.id) }, "✨ ", t("q.aiDraft")));
+    }
+    if (q.faq_ok && q.answer) {
+      actions.append(el("button", { class: "small ghost", onclick: async () => {
+        try { await api(`/api/questions/${q.id}/to-faq`, { method: "POST" }); toast(t("q.toFaqDone")); loadFaq(); }
+        catch (err) { toast(err.message); }
+      } }, "? ", t("q.toFaq")));
     }
     card.append(actions, form);
   }
@@ -1561,7 +1589,10 @@ function showStage(id) {
   ["#proposal-form", "#ai-thinking", "#refine-result"].forEach((s) => $(s).classList.toggle("hidden", s !== id));
 }
 
+let refineSource = "";
+
 async function runRefine(body) {
+  refineSource = body.description || "";
   $("#proposal-error").textContent = "";
   showStage("#ai-thinking");
   setStep(2);
@@ -1602,7 +1633,9 @@ async function typewrite(node, text) {
 function showRefined(r) {
   showStage("#refine-result");
   typewrite($("#understood-text"), r.understood || t("p.understoodEmpty"));
-  $("#refine-notes").textContent = t(r.engine === "claude" ? "p.engineClaude" : "p.engineLocal") + (r.notes || "");
+  $("#refine-notes").textContent = t(r.engine === "claude" ? "p.engineClaude" : "p.engineLocal") + (r.notes || "")
+    + (r.refines_left != null ? " · " + t("p.refinesLeft", r.refines_left) : "");
+  renderDiff(refineSource, r.description || "");
   $("#f-title").value = r.title || "";
   $("#f-description").value = r.description || "";
   $("#f-audience").value = r.audience || "";
@@ -1617,6 +1650,36 @@ function showRefined(r) {
       el("div", { class: "q" }, el("small", {}, `🤖 ${t("field." + m.field)}`), m.question), ta);
   }));
   setStep(lastMissing.length ? 3 : 4);
+}
+
+// Diff pe cuvinte între ce a scris studentul și varianta AI (LCS); doar noduri text, fără HTML
+function wordDiff(a, b) {
+  const A = a.split(/(\s+)/).filter(Boolean), B = b.split(/(\s+)/).filter(Boolean);
+  if (A.length * B.length > 600000) return [{ op: "same", text: b }];
+  const L = Array.from({ length: A.length + 1 }, () => new Uint16Array(B.length + 1));
+  for (let i = A.length - 1; i >= 0; i--)
+    for (let j = B.length - 1; j >= 0; j--)
+      L[i][j] = A[i] === B[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+  const out = [];
+  const push = (op, text) => { const last = out[out.length - 1]; if (last && last.op === op) last.text += text; else out.push({ op, text }); };
+  let i = 0, j = 0;
+  while (i < A.length && j < B.length) {
+    if (A[i] === B[j]) { push("same", A[i]); i++; j++; }
+    else if (L[i + 1][j] >= L[i][j + 1]) push("del", A[i++]);
+    else push("ins", B[j++]);
+  }
+  while (i < A.length) push("del", A[i++]);
+  while (j < B.length) push("ins", B[j++]);
+  return out;
+}
+
+function renderDiff(before, after) {
+  const box = $("#diff-box");
+  box.classList.toggle("hidden", !before.trim());
+  if (!before.trim()) return;
+  if (before.trim() === after.trim()) { $("#diff-text").replaceChildren(el("span", { class: "muted" }, t("p.diffNone"))); return; }
+  $("#diff-text").replaceChildren(...wordDiff(before, after).map((p) =>
+    p.op === "same" ? document.createTextNode(p.text) : el(p.op === "ins" ? "ins" : "del", {}, p.text)));
 }
 
 $("#proposal-form").addEventListener("submit", (e) => {
@@ -1689,12 +1752,70 @@ $("#submit-proposal").addEventListener("click", async (e) => {
   }
 });
 
+// Mod proiector: o propunere pe ecran, mare, pentru discuția din clasă
+let projIndex = 0;
+function projectorList() {
+  return proposals.filter((p) => p.status !== "withdrawn").sort((a, b) => b.votes - a.votes || b.id - a.id);
+}
+function renderProjector() {
+  const list = projectorList();
+  const box = $("#projector");
+  const close = el("button", { type: "button", class: "small ghost proj-close", onclick: closeProjector }, t("p.projClose"));
+  if (!list.length) { box.replaceChildren(close, el("p", { class: "proj-empty" }, t("p.projEmpty"))); return; }
+  projIndex = (projIndex + list.length) % list.length;
+  const p = list[projIndex];
+  box.replaceChildren(...[
+    el("div", { class: "proj-top" }, el("span", { class: "mono muted" }, t("p.projCount", projIndex + 1, list.length)), decisionBadge(p), close),
+    el("h1", { id: "proj-title" }, p.title),
+    el("p", { class: "proj-line" }, el("b", {}, t("p.what")), p.description),
+    el("p", { class: "proj-line" }, el("b", {}, t("p.for")), p.audience),
+    p.trainer_note ? el("p", { class: "trainer-note" }, el("b", {}, t("p.trainerNote") + ": "), p.trainer_note) : null,
+    el("div", { class: "proj-foot" },
+      el("span", { class: "proj-votes mono" }, `▲ ${p.votes}`),
+      el("span", { class: "muted" }, p.author),
+      el("div", { class: "row" },
+        el("button", { type: "button", class: "small", onclick: () => { projIndex--; renderProjector(); }, "aria-label": "←" }, "←"),
+        el("button", { type: "button", class: "small", onclick: () => { projIndex++; renderProjector(); }, "aria-label": "→" }, "→"))),
+    el("p", { class: "muted small proj-hint" }, t("p.projHint"))].filter(Boolean));
+}
+function openProjector() {
+  projIndex = 0;
+  $("#projector").classList.remove("hidden");
+  document.body.classList.add("proj-open");
+  renderProjector();
+  $("#projector").requestFullscreen?.().catch(() => {});
+}
+function closeProjector() {
+  $("#projector").classList.add("hidden");
+  document.body.classList.remove("proj-open");
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+}
+document.addEventListener("keydown", (e) => {
+  if ($("#projector").classList.contains("hidden")) return;
+  if (e.key === "Escape") closeProjector();
+  else if (e.key === "ArrowRight") { projIndex++; renderProjector(); }
+  else if (e.key === "ArrowLeft") { projIndex--; renderProjector(); }
+});
+$("#projector-btn").addEventListener("click", openProjector);
+
+$("#export-btn").addEventListener("click", async () => {
+  try {
+    const res = await fetch("/api/proposals/export.csv", { headers: { "X-Lang": lang, Authorization: `Bearer ${auth.token}` } });
+    if (!res.ok) throw new Error(t("err.generic"));
+    const url = URL.createObjectURL(await res.blob());
+    const a = el("a", { href: url, download: "propuneri.csv" });
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (err) { toast(err.message); }
+});
+
 $("#proposal-search").addEventListener("input", renderProposals);
 $("#proposal-sort").addEventListener("change", renderProposals);
 
 async function loadProposals() {
   proposals = await api("/api/proposals");
   renderProposals();
+  if (!$("#projector").classList.contains("hidden")) renderProjector();
   renderHome();
   renderBell();
 }
@@ -1726,13 +1847,38 @@ function renderProposals() {
   }));
 }
 
+const DECISIONS = ["new", "discussing", "chosen", "rejected"];
+
+function decisionBadge(p) {
+  if (p.decision === "chosen") return el("span", { class: "right chosen-badge" }, t("p.chosen"));
+  if (p.decision === "discussing" || p.decision === "rejected") return el("span", { class: `right status dec-${p.decision}` }, t("p.dec." + p.decision));
+  return null;
+}
+
+async function setDecision(p, decision, note) {
+  try {
+    await api(`/api/proposals/${p.id}/decision`, { method: "POST", body: { decision, note } });
+    if (decision === "chosen" && p.decision !== "chosen") confetti();
+    toast(t("p.decSaved"));
+    await loadProposals();
+    loadBoard();
+  } catch (err) { toast(err.message); }
+}
+
+function decisionControls(p) {
+  const note = el("input", { maxlength: 500, placeholder: t("p.notePh"), value: p.trainer_note || "" });
+  const seg = el("div", { class: "seg dec-seg", role: "group" }, ...DECISIONS.map((d) =>
+    el("button", { type: "button", class: `small ${p.decision === d ? "on" : ""}`, disabled: p.status === "withdrawn" && d !== p.decision,
+      onclick: () => setDecision(p, d, note.value) }, t("p.dec." + d))));
+  const form = el("div", { class: "dec-note" }, note,
+    el("button", { type: "button", class: "small ghost", onclick: () => setDecision(p, p.decision, note.value) }, t("p.noteSave")));
+  return el("div", { class: "dec-wrap" }, seg, form);
+}
+
 function proposalCard(p, rank) {
   const actions = el("div", { class: "actions" });
   if (isTrainer()) {
-    actions.append(el("button", {
-      class: `small choose ${p.chosen ? "on" : ""}`,
-      onclick: async () => { const was = p.chosen; if (await act(`/api/proposals/${p.id}/choose`) && !was) confetti(); },
-    }, t(p.chosen ? "p.unchoose" : "p.choose")));
+    actions.append(decisionControls(p));
     actions.append(el("span", { class: "muted small mono" }, `▲ ${p.votes} ${t(p.votes === 1 ? "p.vote1" : "p.votes")}`));
   } else {
     actions.append(el("button", {
@@ -1750,10 +1896,11 @@ function proposalCard(p, rank) {
       el("strong", {}, p.mine ? p.author + t("p.you") : p.author),
       el("span", {}, timeAgo(p.created_at)),
       p.status === "withdrawn" ? el("span", { class: "right status withdrawn" }, t(p.withdrawn_reason === "resolved" ? "p.withdrawnResolved" : "p.withdrawn"))
-        : p.chosen ? el("span", { class: "right chosen-badge" }, t("p.chosen")) : null),
+        : decisionBadge(p)),
     el("h3", {}, p.title),
     el("p", { class: "meta-line" }, el("b", {}, t("p.what")), p.description),
     el("p", { class: "meta-line" }, el("b", {}, t("p.for")), p.audience),
+    p.trainer_note ? el("p", { class: "trainer-note" }, el("b", {}, t("p.trainerNote") + ": "), p.trainer_note) : null,
     actions);
 }
 
@@ -1895,7 +2042,9 @@ function renderMyProposals() {
     const withdrawn = p.status === "withdrawn";
     const status = withdrawn
       ? el("span", { class: `status ${p.withdrawn_reason === "resolved" ? "resolved" : "withdrawn"}` }, t(p.withdrawn_reason === "resolved" ? "p.withdrawnResolved" : "p.withdrawn"))
-      : p.chosen ? el("span", { class: "chosen-badge" }, t("p.chosen")) : el("span", { class: "status ok" }, t("p.active"));
+      : p.chosen ? el("span", { class: "chosen-badge" }, t("p.chosen"))
+      : p.decision === "discussing" || p.decision === "rejected" ? el("span", { class: `status dec-${p.decision}` }, t("p.dec." + p.decision))
+      : el("span", { class: "status ok" }, t("p.active"));
     const row = el("div", { class: `mine-row ${withdrawn ? "withdrawn" : ""}` },
       el("span", { class: "t" }, p.title), status,
       el("span", { class: "votes mono small" }, `▲ ${p.votes}`),
@@ -2436,7 +2585,7 @@ function faqEditor(item, onDone) {
   return el("form", { class: "card composer faq-form", onsubmit: async (e) => {
     e.preventDefault();
     try {
-      await api(item && item.id ? `/api/faq/${item.id}` : "/api/faq", { method: item && item.id ? "PUT" : "POST", body: { q: q.value, a: a.value } });
+      await api(item && item.id ? `/api/faq/${item.id}` : "/api/faq", { method: item && item.id ? "PUT" : "POST", body: { q: q.value, a: a.value, ...(item && !item.id && item.question_id ? { question_id: item.question_id } : {}) } });
       toast(t("faq.saved"));
       if (onDone) onDone();
       loadFaq();
@@ -2507,7 +2656,7 @@ function renderRecap() {
   const stat = (n, label, view) => el("button", { type: "button", class: "recap-stat", onclick: view ? () => showView(view) : null }, el("b", {}, String(n)), el("span", {}, label));
   const publish = (s) => {
     const box = el("div", { class: "faq-suggest" }, el("b", {}, s.q), el("p", { class: "small muted" }, trunc(s.a, 220)),
-      el("button", { type: "button", class: "small", onclick: () => box.replaceWith(faqEditor({ q: s.q, a: s.a }, () => loadRecap())) }, t("rec.toFaq")));
+      el("button", { type: "button", class: "small", onclick: () => box.replaceWith(faqEditor({ q: s.q, a: s.a, question_id: s.question_id }, () => loadRecap())) }, t("rec.toFaq")));
     return box;
   };
   card.replaceChildren(

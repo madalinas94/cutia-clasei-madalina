@@ -22,7 +22,7 @@ def reset_db():
     app_module.db.update({
         "users": {}, "sessions": {}, "prefs": {}, "drafts": [], "questions": [], "proposals": [], "submissions": [],
         "messages": [], "assignments": [], "announcements": [], "bonuses": [], "next_id": 1,
-        "doctor": [], "hall": [], "live": None, "live_history": [], "showcase": [], "faq": [], "challenges": {}, "push": {}, "kickstarts": {}, "lab_log": {}, "recaps": {}, "digests": [],
+        "doctor": [], "hall": [], "live": None, "live_history": [], "showcase": [], "faq": [], "challenges": {}, "push": {}, "kickstarts": {}, "lab_log": {}, "recaps": {}, "digests": [], "refine_log": {},
     })
     app_module._failed.clear()
     app_module._cooldowns.clear()
@@ -1133,13 +1133,18 @@ def test_recap_is_trainer_only_and_sends_no_names(monkeypatch):
     assert client.get("/api/recap", headers=ha).status_code == 403
     r = client.get("/api/recap", headers=ht).json()
     assert r["stats"]["questions_new"] == 1 and r["stats"]["students"] == 2 and r["inactive"] == ["Vlad"]
-    assert r["faq_suggestions"] == [{"q": "Cum ascund cheia API?", "a": "O pui în .env, iar .env în .gitignore."}]
+    # Fără acordul studentului, întrebarea nu devine propunere de FAQ
+    assert r["faq_suggestions"] == []
+    client.post(f"/api/questions/{qid}/faq-consent", headers=ha, json={"faq_ok": True})
+    r = client.get("/api/recap", headers=ht).json()
+    assert r["faq_suggestions"] == [{"q": "Cum ascund cheia API?", "a": "O pui în .env, iar .env în .gitignore.", "question_id": qid}]
     sent = {}
     monkeypatch.setattr(app_module.ai, "available", lambda: True)
     monkeypatch.setattr(app_module.tools, "recap", lambda activity, lang: sent.update(activity=activity) or
                         {"summary": "S", "focus": ["F"], "faq": [{"q": "Q", "a": "A"}]})
     r = client.get("/api/recap?refresh=true", headers=ht).json()
-    assert r["ai"]["summary"] == "S" and r["faq_suggestions"] == [{"q": "Q", "a": "A"}]
+    # Propunerile de FAQ vin doar din întrebările cu acord, nu din textul generat de AI
+    assert r["ai"]["summary"] == "S" and r["faq_suggestions"][0]["question_id"] == qid
     assert "Ana" not in _json.dumps(sent) and "Vlad" not in _json.dumps(sent) and "@" not in _json.dumps(sent)
 
 
@@ -1339,3 +1344,79 @@ def test_files_go_to_private_bucket(supa_db):
     assert client.get(f"/api/showcase/{sid}/image", headers=login("Vlad")).content == PNG_1PX
     client.delete(f"/api/showcase/{sid}", headers=h)
     assert fake.files == {}
+
+
+# ---------------------------------------------------------------- Aplicația combinată: FAQ cu acord, statusuri, CSV, limită AI, demo
+
+def test_faq_needs_student_consent_and_revoking_removes_it():
+    ha, hb, ht = login("Ana"), login("Vlad"), login("Radu", "trainer")
+    qid = client.post("/api/questions", headers=ha, json={"text": "Cum leg un buton de o funcție?", "category": "other"}).json()["id"]
+    client.post(f"/api/questions/{qid}/answer", headers=ht, json={"text": "Cu addEventListener."})
+    # Fără acord: trainerul nu poate publica întrebarea în FAQ, nici direct, nici prin /api/faq
+    assert client.post(f"/api/questions/{qid}/to-faq", headers=ht).status_code == 400
+    assert client.post("/api/faq", headers=ht, json={"q": "x?x", "a": "y", "question_id": qid}).status_code == 400
+    # Doar autorul își dă acordul; alt student nu poate, trainerul nici atât
+    assert client.post(f"/api/questions/{qid}/faq-consent", headers=hb, json={"faq_ok": True}).status_code == 404
+    assert client.post(f"/api/questions/{qid}/faq-consent", headers=ht, json={"faq_ok": True}).status_code == 403
+    assert client.post(f"/api/questions/{qid}/faq-consent", headers=ha, json={"faq_ok": True}).json()["faq_ok"] is True
+    f = client.post(f"/api/questions/{qid}/to-faq", headers=ht)
+    assert f.status_code == 201 and "question_id" not in f.json()
+    faq = client.get("/api/faq", headers=hb).json()
+    assert faq[0]["q"] == "Cum leg un buton de o funcție?" and "Ana" not in _json.dumps(faq)
+    # Studentul își retrage acordul: intrarea dispare din FAQ
+    client.post(f"/api/questions/{qid}/faq-consent", headers=ha, json={"faq_ok": False})
+    assert client.get("/api/faq", headers=hb).json() == []
+
+
+def test_proposal_decision_is_trainer_only_and_syncs_chosen():
+    ha, hb, ht = login("Ana"), login("Vlad"), login("Radu", "trainer")
+    pid = client.post("/api/proposals", headers=ha, json={"title": "Bingo", "description": "Joc", "audience": "Clasa", "approved": True}).json()["id"]
+    assert client.get("/api/proposals", headers=hb).json()[0]["decision"] == "new"
+    # Studenții nu pot schimba statusul, nici pe propunerea lor
+    assert client.post(f"/api/proposals/{pid}/decision", headers=ha, json={"decision": "chosen"}).status_code == 403
+    assert client.post(f"/api/proposals/{pid}/decision", headers=ht, json={"decision": "hacked"}).status_code == 422
+    r = client.post(f"/api/proposals/{pid}/decision", headers=ht, json={"decision": "discussing", "note": "Mai mic, te rog."}).json()
+    assert r["decision"] == "discussing" and r["chosen"] is False
+    seen = client.get("/api/proposals", headers=hb).json()[0]
+    assert seen["trainer_note"] == "Mai mic, te rog." and seen["decision"] == "discussing"
+    # „Aleasă” păstrează punctele și kitul de start ca înainte
+    r = client.post(f"/api/proposals/{pid}/decision", headers=ht, json={"decision": "chosen"}).json()
+    assert r["chosen"] is True and r["chosen_at"]
+    assert any(e["kind"] == "chosen" for e in client.get("/api/points/me", headers=ha).json()["events"])
+    r = client.post(f"/api/proposals/{pid}/decision", headers=ht, json={"decision": "rejected"}).json()
+    assert r["chosen"] is False and r["decision"] == "rejected"
+    # Butonul vechi „Alege” rămâne compatibil
+    assert client.post(f"/api/proposals/{pid}/choose", headers=ht).json()["decision"] == "chosen"
+
+
+def test_csv_export_trainer_only_and_formula_safe():
+    ha, ht = login("Ana"), login("Radu", "trainer")
+    client.post("/api/proposals", headers=ha, json={"title": "=HYPERLINK(\"x\")", "description": "Joc", "audience": "Clasa", "approved": True})
+    assert client.get("/api/proposals/export.csv", headers=ha).status_code == 403
+    r = client.get("/api/proposals/export.csv", headers=ht)
+    assert r.status_code == 200 and r.headers["content-type"].startswith("text/csv")
+    body = r.content.decode("utf-8-sig")
+    assert "'=HYPERLINK" in body and "titlu" in body.splitlines()[0]
+
+
+def test_refine_daily_limit(monkeypatch):
+    ha = login("Ana")
+    monkeypatch.setattr(app_module, "REFINE_PER_DAY", 2)
+    monkeypatch.setattr(app_module.ai, "available", lambda: True)
+    monkeypatch.setattr(app_module.ai, "refine", lambda *a: {"title": "T", "description": "D", "audience": "A", "missing": [], "engine": "claude"})
+    lefts = [client.post("/api/proposals/refine", headers=ha, json={"title": "x"}).json()["refines_left"] for _ in range(2)]
+    assert lefts == [1, 0]
+    r = client.post("/api/proposals/refine", headers=ha, json={"title": "x"})
+    assert r.status_code == 429 and "2" in r.json()["detail"]
+    # Limita e per student
+    assert client.post("/api/proposals/refine", headers=login("Vlad"), json={"title": "x"}).status_code == 200
+
+
+def test_demo_seed_creates_accounts_and_data():
+    app_module.seed_demo()
+    r = client.post("/api/login", json={"email": "trainer@demo.cutia", "password": app_module.DEMO_PASSWORD})
+    assert r.status_code == 200 and r.json()["role"] == "trainer"
+    ana = client.post("/api/login", json={"email": "ana@demo.cutia", "password": app_module.DEMO_PASSWORD}).json()
+    h = {"Authorization": f"Bearer {ana['token']}"}
+    assert ana["role"] == "student" and len(client.get("/api/questions", headers=h).json()) == 2
+    assert {p["decision"] for p in client.get("/api/proposals", headers=h).json()} == {"new", "discussing", "chosen"}

@@ -1,7 +1,7 @@
 // Service worker: aplicația se instalează pe telefon, se deschide și fără
 // internet (ultima versiune salvată) și primește notificări push.
 // Datele (/api/...) nu se salvează niciodată aici: rămân doar pe server.
-const CACHE = "cutia-v1";
+const CACHE = "cutia-v2";
 const SHELL = [
   "index.html", "styles.css", "app.js", "fonts.css", "intro.js", "manifest.webmanifest",
   "i18n/core.js", "i18n/ro.js", "i18n/en.js", "icons/icon-192.png",

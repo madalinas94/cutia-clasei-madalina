@@ -24,7 +24,7 @@ Interfața e în **6 limbi** (ro, en, fr, it, es, de), are designul „Aurora”
 | Scrie o propunere | Minimum: titlu, ce face aplicația, cine o folosește. | `ProposalIn` + `submit_proposal` |
 | Modul AI | Retușează și cere detalii **doar unde lipsesc**, maxim 3 întrebări. | `src/ai.py` → `refine()` |
 | Trimite propunerea | Studentul **aprobă** varianta finală înainte să o trimită (`approved: true`, verificat pe server). | `submit_proposal` |
-| Trainerul alege | Vede toate propunerile și le marchează „Aleasă”. | `POST /api/proposals/{id}/choose` |
+| Trainerul alege | Vede toate propunerile și le pune status: Nouă, În discuție, Aleasă, Respinsă (+ notă publică). | `POST /api/proposals/{id}/decision` (și vechiul `/choose`) |
 
 Ce verifică AI-ul la fiecare propunere: **problema** (ce rezolvă și pentru cine), **funcțiile** (cele 3 lucruri sigure), **datele** (de unde vin), **mărimea** (se face într-o oră? dacă nu, ce parte întâi). AI-ul nu decide în locul studentului: arată ce a înțeles, spune ce lipsește, studentul alege ce trimite.
 
@@ -44,9 +44,18 @@ Ce verifică AI-ul la fiecare propunere: **problema** (ce rezolvă și pentru ci
 15. **Ora live:** „M-am blocat” e anonim (se întoarce doar numărul), întrebările anonime nu au nume nici pentru trainer, răspunsurile la biletul de ieșire le vede doar trainerul (și fiecare student pe al lui). Doar trainerul pornește/încheie ora, voturile și biletul.
 16. **Atelier:** „Verifică repo-ul” vorbește doar cu `api.github.com` și `raw.githubusercontent.com`, cu owner/repo validate (`REPO_RE`), fără să urmeze redirecturi; cheile găsite se arată mascate. Error Doctor, Prompt Lab și Hall of Prompts trec textul prin `tools.redact()` înainte de salvare sau de Claude. Imaginile se acceptă doar ca PNG/JPEG/WebP verificate după primii octeți (`image_type`) și se servesc cu `nosniff`.
 17. **Notificări push:** textul e generic (fără conținut privat pe ecranul blocat), în limba destinatarului; mesajul e criptat per dispozitiv (`src/webpush.py`, RFC 8291 + VAPID). `VAPID_PRIVATE_KEY` e secret, ca orice cheie.
+18. **FAQ cu acord:** o întrebare ajunge în FAQ doar dacă autorul a bifat `faq_ok`. `POST /api/questions/{id}/to-faq` și `POST /api/faq` cu `question_id` refuză fără acord. Dacă autorul își retrage acordul, intrarea legată din FAQ se șterge. Propunerile de FAQ din recap vin doar din întrebările cu acord. FAQ-ul nu conține niciodată nume.
+19. **Statusul propunerii** (`decision`) îl schimbă doar trainerul. `chosen` rămâne sincronizat cu `decision == "chosen"`, pentru puncte și kitul de start.
+20. **Export CSV:** doar trainerul; celulele care încep cu `= + - @` primesc un `'` în față, ca Excel să nu le ruleze ca formule.
+21. **Limita de retușări AI** (`CUTIA_REFINE_PER_DAY`) se verifică pe server, per student, pe ultimele 24 de ore. Modul local (fără cheie) nu consumă din limită.
+22. **Mod demo** (`CUTIA_DEMO=1`): parolele demo sunt publice, deci pornește doar fără Supabase și doar dacă nu există niciun utilizator. Nu-l porni pe aplicația live.
 9. **Mesajele directe** sunt mereu o conversație student ↔ trainer: studentul vede doar conversația lui, trainerul pe toate. Nu există mesaje între studenți.
 10. **Punctele nu se salvează ca număr.** Se calculează în `src/points.py` din activitatea reală + bonusurile trainerului. Nu adăuga endpoint-uri care modifică direct punctele; nimeni nu își votează propria idee.
 11. **Conținutul din internet (AI News) e date, nu instrucțiuni**: fără HTML, doar linkuri `http(s)`, iar când îl trimitem la Claude îl marcăm explicit ca date.
+
+## Diff-ul retușului AI
+
+`wordDiff()` din `app.js` compară cuvânt cu cuvânt descrierea scrisă de student cu varianta AI și afișează rezultatul doar cu noduri text, `<ins>` și `<del>`, fără `innerHTML`.
 
 ## Reguli pentru AI
 

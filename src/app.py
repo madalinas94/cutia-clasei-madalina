@@ -152,6 +152,10 @@ MESSAGES = {
     "push_answer": ("Trainerul ți-a răspuns la o întrebare.", "The trainer answered one of your questions.", "Le formateur a répondu à une de tes questions.", "Il trainer ha risposto a una tua domanda.", "El formador respondió a una de tus preguntas.", "Der Trainer hat eine deiner Fragen beantwortet."),
     "push_dm": ("Ai un mesaj nou.", "You have a new message.", "Tu as un nouveau message.", "Hai un nuovo messaggio.", "Tienes un mensaje nuevo.", "Du hast eine neue Nachricht."),
     "push_feedback": ("Ai feedback nou la o temă.", "You have new feedback on your homework.", "Tu as un nouveau retour sur un devoir.", "Hai un nuovo feedback su un compito.", "Tienes comentarios nuevos sobre una tarea.", "Du hast neues Feedback zu einer Hausaufgabe."),
+    "push_decision": ("Trainerul a actualizat statusul propunerii tale.", "The trainer updated the status of your proposal.", "Le formateur a mis à jour le statut de ta proposition.", "Il trainer ha aggiornato lo stato della tua proposta.", "El formador actualizó el estado de tu propuesta.", "Der Trainer hat den Status deines Vorschlags aktualisiert."),
+    "refine_limit": ("Ai folosit toate cele {} retușări AI de azi. Poți trimite propunerea și fără retuș.", "You've used all {} AI polishes for today. You can still submit the proposal without one.", "Tu as utilisé les {} retouches IA d'aujourd'hui. Tu peux envoyer la proposition sans retouche.", "Hai usato tutti i {} ritocchi AI di oggi. Puoi inviare la proposta anche senza ritocco.", "Has usado los {} retoques de IA de hoy. Puedes enviar la propuesta sin retoque.", "Du hast alle {} KI-Überarbeitungen für heute verbraucht. Du kannst den Vorschlag auch ohne senden."),
+    "no_faq_consent": ("Studentul nu a fost de acord ca întrebarea să apară în FAQ.", "The student hasn't agreed to this question appearing in the FAQ.", "L'étudiant n'a pas accepté que cette question apparaisse dans la FAQ.", "Lo studente non ha acconsentito a pubblicare questa domanda nelle FAQ.", "El estudiante no aceptó que esta pregunta aparezca en las FAQ.", "Der Student hat nicht zugestimmt, dass diese Frage in den FAQ erscheint."),
+    "need_answer_first": ("Răspunde mai întâi la întrebare.", "Answer the question first.", "Réponds d'abord à la question.", "Rispondi prima alla domanda.", "Responde primero a la pregunta.", "Beantworte zuerst die Frage."),
     "push_chosen": ("Ideea ta a fost aleasă! 🏆", "Your idea was chosen! 🏆", "Ton idée a été choisie ! 🏆", "La tua idea è stata scelta! 🏆", "¡Tu idea fue elegida! 🏆", "Deine Idee wurde gewählt! 🏆"),
     "push_assignment": ("Temă nouă de la trainer.", "New homework from the trainer.", "Nouveau devoir du formateur.", "Nuovo compito dal trainer.", "Nueva tarea del formador.", "Neue Hausaufgabe vom Trainer."),
     "push_live": ("🔴 Ora live a început. Intră!", "🔴 The live class has started. Join in!", "🔴 Le cours en direct a commencé. Rejoins-nous !", "🔴 La lezione live è iniziata. Entra!", "🔴 La clase en vivo ha empezado. ¡Entra!", "🔴 Die Live-Stunde hat begonnen. Komm rein!"),
@@ -199,7 +203,7 @@ db = {
     "users": {}, "sessions": {}, "prefs": {}, "drafts": [],
     "questions": [], "proposals": [], "submissions": [],
     "messages": [], "assignments": [], "announcements": [], "bonuses": [],
-    "supabase_pending": {}, "digests": [], "next_id": 1,
+    "supabase_pending": {}, "digests": [], "refine_log": {}, "next_id": 1,
 }
 SESSION_DAYS = 60
 
@@ -299,6 +303,58 @@ def now() -> str:
 
 
 load_db()
+
+# ---------------------------------------------------------------------------
+# Mod demo (CUTIA_DEMO=1): conturi și date fictive, ca aplicația să poată fi
+# arătată în clasă fără conturi reale. Merge doar fără Supabase și doar pe o bază goală.
+# ---------------------------------------------------------------------------
+
+DEMO = os.environ.get("CUTIA_DEMO", "0") == "1"
+DEMO_PASSWORD = "demo-cutia"
+DEMO_ACCOUNTS = [
+    {"email": "trainer@demo.cutia", "name": "Trainer Demo", "role": "trainer"},
+    {"email": "ana@demo.cutia", "name": "Ana Demo", "role": "student"},
+    {"email": "mihai@demo.cutia", "name": "Mihai Demo", "role": "student"},
+]
+
+
+def seed_demo():
+    import hashlib as _h
+    import secrets as _s
+    stamp = now()
+    for acc in DEMO_ACCOUNTS:
+        salt = _s.token_bytes(16)
+        db["users"][acc["email"]] = {**acc, "salt": salt.hex(), "created_at": stamp,
+                                     "hash": _h.pbkdf2_hmac("sha256", DEMO_PASSWORD.encode(), salt, 200_000).hex()}
+    ana, mihai = DEMO_ACCOUNTS[1], DEMO_ACCOUNTS[2]
+
+    def question(author, text, category, answer=None, faq_ok=False):
+        db["questions"].append({"id": next_id(), "text": text, "category": category, "anonymous": False, "faq_ok": faq_ok,
+                                "author": author["name"], "author_key": author["email"], "created_at": stamp,
+                                "answer": answer, "answered_at": stamp if answer else None, "ai_answer": None, "ai_answered_at": None})
+
+    question(ana, "De ce nu se salvează formularul meu după refresh?", "debugging",
+             "Datele stau doar în memoria paginii. Salvează-le în localStorage sau, dacă trebuie să le vadă și alții, într-o bază de date.", faq_ok=True)
+    question(ana, "Cum îi dau lui Claude contextul întregului proiect?", "context")
+    question(mihai, "Unde țin cheia API ca să nu ajungă pe GitHub?", "security",
+             "Într-o variabilă de mediu, în fișierul .env, care e trecut în .gitignore. Apelul către AI se face de pe server.", faq_ok=True)
+
+    def proposal(author, title, description, audience, voters, decision="new", note=None):
+        db["proposals"].append({"id": next_id(), "title": title, "description": description, "audience": audience,
+                                "author": author["name"], "author_key": author["email"], "created_at": stamp,
+                                "chosen": decision == "chosen", "chosen_at": stamp if decision == "chosen" else None,
+                                "decision": decision, "trainer_note": note, "voters": voters})
+
+    proposal(ana, "Bingo de prompturi", "Un joc în care clasa bifează tehnici de prompting pe măsură ce le folosește la oră.",
+             "Studenții, în timpul orei", [mihai["email"]], "discussing", "Îmi place. Facem prima versiune data viitoare?")
+    proposal(mihai, "Jurnal de erori", "Fiecare student salvează erorile întâlnite și cum le-a rezolvat, ca să le găsească ușor.",
+             "Studenții și trainerul", [ana["email"]], "chosen")
+    proposal(ana, "Cronometru de pauze", "Un cronometru care amintește clasei să ia pauză.", "Toată clasa", [])
+    save_db()
+
+
+if DEMO and not supa.enabled() and not db["users"]:
+    seed_demo()
 
 # ---------------------------------------------------------------------------
 # Conturi: email + parolă (sau Google, dacă e configurat GOOGLE_CLIENT_ID).
@@ -741,7 +797,8 @@ def config():
     # Adresa Supabase e publică (o vede oricum browserul la Google); anon key rămâne pe server
     sb = {"url": supa.url(), "google": supa.google_enabled()} if supa.enabled() else None
     return {"ai": ai.available(), "topics": TOPICS, "google_client_id": None if sb else (GOOGLE_CLIENT_ID or None),
-            "class_code_required": bool(CLASS_CODE), "supabase": sb, "push_key": webpush.public_key() if webpush.enabled() else None}
+            "class_code_required": bool(CLASS_CODE), "supabase": sb, "push_key": webpush.public_key() if webpush.enabled() else None,
+            "demo": {"accounts": DEMO_ACCOUNTS, "password": DEMO_PASSWORD} if DEMO else None}
 
 
 # ---------------------------------------------------------------------------
@@ -759,6 +816,7 @@ class QuestionIn(BaseModel):
     text: str = Field(min_length=3, max_length=2000)
     category: str = "other"
     anonymous: bool = False
+    faq_ok: bool = False  # acordul studentului ca întrebarea să apară anonim în FAQ
 
 
 class AnswerIn(BaseModel):
@@ -797,6 +855,7 @@ def ask_question(body: QuestionIn, user: dict = Depends(require_student)):
             "text": text,
             "category": body.category if body.category in TOPICS else "other",
             "anonymous": body.anonymous,
+            "faq_ok": body.faq_ok,
             "author": user["name"],
             "author_key": user["key"],
             "created_at": now(),
@@ -847,6 +906,44 @@ def ai_answer_question(question_id: int, user: dict = Depends(current_user)):
         q["ai_answered_at"] = now()
         save_db()
     return question_view(q, user)
+
+
+class FaqConsentIn(BaseModel):
+    faq_ok: bool
+
+
+@app.post("/api/questions/{question_id}/faq-consent")
+def set_faq_consent(question_id: int, body: FaqConsentIn, user: dict = Depends(require_student)):
+    """Doar autorul decide dacă întrebarea lui poate ajunge, anonim, în FAQ.
+    Dacă își retrage acordul, scoatem și intrarea din FAQ făcută din ea."""
+    with _lock:
+        q = find_question(question_id)
+        if q["author_key"] != user["key"]:
+            fail(404, "no_question")
+        q["faq_ok"] = body.faq_ok
+        if not body.faq_ok:
+            db["faq"] = [f for f in db.get("faq", []) if f.get("question_id") != q["id"]]
+        save_db()
+    return question_view(q, user)
+
+
+@app.post("/api/questions/{question_id}/to-faq", status_code=201)
+def question_to_faq(question_id: int, user: dict = Depends(require_trainer)):
+    """Trainerul publică în FAQ o întrebare cu răspuns, doar cu acordul autorului, fără nume."""
+    with _lock:
+        q = find_question(question_id)
+        if not q.get("faq_ok"):
+            fail(400, "no_faq_consent")
+        if not q.get("answer"):
+            fail(400, "need_answer_first")
+        f = next((x for x in db.get("faq", []) if x.get("question_id") == q["id"]), None)
+        if f:
+            f.update(q=q["text"][:300], a=q["answer"][:3000])
+        else:
+            f = {"id": next_id(), "q": q["text"][:300], "a": q["answer"][:3000], "created_at": now(), "question_id": q["id"]}
+            db.setdefault("faq", []).append(f)
+        save_db()
+    return {k: f[k] for k in ("id", "q", "a", "created_at")}
 
 
 # ---------------------------------------------------------------------------
@@ -1009,9 +1106,18 @@ def is_withdrawn(p: dict) -> bool:
     return p.get("status") == "withdrawn"
 
 
+DECISIONS = ["new", "discussing", "chosen", "rejected"]
+REFINE_PER_DAY = max(1, int(os.environ.get("CUTIA_REFINE_PER_DAY", "20") or 20))
+
+
+def decision_of(p: dict) -> str:
+    return p.get("decision") or ("chosen" if p.get("chosen") else "new")
+
+
 def proposal_view(p: dict, user: dict) -> dict:
     view = {k: v for k, v in p.items() if k not in ("author_key", "voters")}
     view["status"] = p.get("status", "active")
+    view["decision"] = decision_of(p)
     view["votes"] = len(p["voters"])
     view["voted"] = user["key"] in p["voters"]
     view["mine"] = p["author_key"] == user["key"]
@@ -1022,7 +1128,21 @@ def proposal_view(p: dict, user: dict) -> dict:
 def refine_proposal(body: ProposalDraft, user: dict = Depends(require_student)):
     if not (body.title.strip() or body.description.strip() or body.audience.strip()):
         fail(400, "empty_idea")
-    return ai.refine(body.title, body.description, body.audience, current_lang.get())
+    # Limită pe zi per student: fiecare retuș cu Claude costă (modul local e gratuit)
+    left = None
+    if ai.available():
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat(timespec="seconds")
+        with _lock:
+            log = [t for t in db.setdefault("refine_log", {}).get(user["key"], []) if t > cutoff]
+            if len(log) >= REFINE_PER_DAY:
+                fail(429, "refine_limit", REFINE_PER_DAY)
+            log.append(now())
+            db["refine_log"][user["key"]] = log
+            save_db()
+        left = REFINE_PER_DAY - len(log)
+    result = dict(ai.refine(body.title, body.description, body.audience, current_lang.get()))
+    result["refines_left"] = left
+    return result
 
 
 @app.post("/api/proposals", status_code=201)
@@ -1041,6 +1161,7 @@ def submit_proposal(body: ProposalIn, user: dict = Depends(require_student)):
             "author_key": user["key"],
             "created_at": now(),
             "chosen": False,
+            "decision": "new",
             "voters": [],
         }
         db["proposals"].append(p)
@@ -1086,10 +1207,60 @@ def toggle_chosen(proposal_id: int, user: dict = Depends(require_trainer)):
             fail(400, "withdrawn")
         p["chosen"] = not p["chosen"]
         p["chosen_at"] = now() if p["chosen"] else None
+        p["decision"] = "chosen" if p["chosen"] else "new"
         save_db()
     if p["chosen"]:
         notify([p["author_key"]], "push_chosen", "box")
     return proposal_view(p, user)
+
+
+class DecisionIn(BaseModel):
+    decision: str = Field(pattern="^(new|discussing|chosen|rejected)$")
+    note: str = Field("", max_length=500)  # nota publică a trainerului, o vede toată clasa
+
+
+@app.post("/api/proposals/{proposal_id}/decision")
+def set_decision(proposal_id: int, body: DecisionIn, user: dict = Depends(require_trainer)):
+    """Statusul propunerii: Nouă, În discuție, Aleasă, Respinsă (+ o notă publică)."""
+    with _lock:
+        p = find_proposal(proposal_id)
+        if is_withdrawn(p) and body.decision != decision_of(p):
+            fail(400, "withdrawn")
+        changed = body.decision != decision_of(p)
+        was_chosen = p.get("chosen", False)
+        p["decision"] = body.decision
+        p["chosen"] = body.decision == "chosen"
+        if p["chosen"] and not was_chosen:
+            p["chosen_at"] = now()
+        elif not p["chosen"]:
+            p["chosen_at"] = None
+        p["trainer_note"] = body.note.strip() or None
+        p["decided_at"] = now()
+        save_db()
+    if changed:
+        notify([p["author_key"]], "push_chosen" if p["chosen"] else "push_decision", "box")
+    return proposal_view(p, user)
+
+
+def csv_cell(value) -> str:
+    """Celulele care încep cu = + - @ sunt formule în Excel: le neutralizăm."""
+    text = "" if value is None else str(value)
+    return "'" + text if text[:1] in ("=", "+", "-", "@", "\t", "\r") else text
+
+
+@app.get("/api/proposals/export.csv")
+def export_proposals(user: dict = Depends(require_trainer)):
+    import csv
+    import io
+    out = io.StringIO()
+    w = csv.writer(out)
+    w.writerow(["id", "titlu", "ce face", "cine o folosește", "autor", "voturi", "status", "retrasă", "nota trainerului", "trimisă la"])
+    for p in db["proposals"]:
+        w.writerow([csv_cell(x) for x in (p["id"], p["title"], p["description"], p["audience"], p["author"], len(p["voters"]),
+                                          decision_of(p), "da" if is_withdrawn(p) else "", p.get("trainer_note") or "", p["created_at"])])
+    # BOM ca Excel să citească diacriticele corect
+    return Response("\ufeff" + out.getvalue(), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": "attachment; filename=propuneri.csv", "X-Content-Type-Options": "nosniff"})
 
 
 class WithdrawIn(BaseModel):
@@ -2166,6 +2337,7 @@ def my_quests(user: dict = Depends(require_student)):
 class FaqIn(BaseModel):
     q: str = Field(min_length=3, max_length=300)
     a: str = Field(min_length=1, max_length=3000)
+    question_id: Optional[int] = None  # dacă vine dintr-o întrebare: cere acordul autorului
 
 
 def find_faq(faq_id: int) -> dict:
@@ -2183,10 +2355,14 @@ def list_faq(user: dict = Depends(current_user)):
 @app.post("/api/faq", status_code=201)
 def add_faq(body: FaqIn, user: dict = Depends(require_trainer)):
     with _lock:
+        if body.question_id is not None and not find_question(body.question_id).get("faq_ok"):
+            fail(400, "no_faq_consent")
         f = {"id": next_id(), "q": body.q.strip(), "a": body.a.strip(), "created_at": now()}
+        if body.question_id is not None:
+            f["question_id"] = body.question_id
         db.setdefault("faq", []).append(f)
         save_db()
-    return f
+    return {k: f[k] for k in ("id", "q", "a", "created_at")}
 
 
 @app.put("/api/faq/{faq_id}")
@@ -2232,7 +2408,9 @@ def weekly_recap(refresh: bool = False, user: dict = Depends(require_trainer)):
     answered = [q for q in questions if q.get("answer") and (q.get("answered_at") or "") >= since]
     known = {f["q"].strip().casefold() for f in db.get("faq", [])}
     # Fără AI: întrebările cu răspuns din săptămâna asta, ca propuneri de FAQ (trainerul le poate edita)
-    local_faq = [{"q": q["text"][:300], "a": q["answer"][:3000]} for q in answered if q["text"].strip().casefold() not in known][:5]
+    # Doar întrebările pentru care studentul și-a dat acordul ajung propuneri de FAQ
+    local_faq = [{"q": q["text"][:300], "a": q["answer"][:3000], "question_id": q["id"]} for q in answered
+                 if q.get("faq_ok") and q["text"].strip().casefold() not in known][:5]
 
     lang = current_lang.get()
     cache_key = f"{points.week_id(points.today())}:{lang}"
@@ -2251,7 +2429,7 @@ def weekly_recap(refresh: bool = False, user: dict = Depends(require_trainer)):
                 db["recaps"][cache_key] = fresh
                 save_db()
     return {"since": since, "stats": stats, "topics": [{"key": k, "count": n} for k, n in topics],
-            "inactive": inactive, "ai": ai_part, "faq_suggestions": (ai_part or {}).get("faq") or local_faq}
+            "inactive": inactive, "ai": ai_part, "faq_suggestions": local_faq}
 
 
 # ---------------------------------------------------------------------------

@@ -4,6 +4,14 @@
 
 ![Robotul de bun venit](docs/screenshots/robot.png)
 
+## De unde vine
+
+Aplicația finală a clasei combină cele mai bune idei din temele studenților:
+
+- **Madalina**: baza aplicației (server, design „Aurora”, ora live, puncte, AI News, Atelier, toate cele 6 limbi).
+- **Alexandra**: diff pe cuvinte la retușul AI, FAQ publicat doar cu acordul studentului, mod proiector, export CSV, mod demo.
+- **Andrei**: statusurile propunerilor (Nouă, În discuție, Aleasă, Respinsă) cu notă publică și limita de retușări AI.
+
 ## Ce face aplicația
 
 | Spațiu | Ce găsești |
@@ -20,9 +28,17 @@
 | Scrie o propunere | Titlu, ce face aplicația, cine o folosește. |
 | Modul AI | Arată ce a înțeles, retușează textul și pune **maxim 3 întrebări**, doar despre ce lipsește: problema, funcțiile, datele, mărimea. |
 | Trimite propunerea | Studentul bifează „Am citit și aprob” înainte de trimitere; orice editare cere o nouă aprobare. Serverul refuză propunerile neaprobate. |
-| Trainerul alege | Trainerul vede toate propunerile și le marchează „Aleasă”. |
+| Trainerul alege | Trainerul vede toate propunerile și le pune un status: Nouă, În discuție, Aleasă sau Respinsă, cu o notă pe care o vede clasa. |
 
 ### Funcții în plus
+
+- **Ce a schimbat AI-ul:** după retuș, studentul vede descrierea lui și varianta AI una peste alta, cuvânt cu cuvânt: tăiat = scos, evidențiat = adăugat.
+- **FAQ cu acord:** la fiecare întrebare, studentul bifează dacă poate apărea anonim în FAQ (și își poate retrage acordul oricând, iar intrarea dispare). Trainerul publică în FAQ doar întrebările cu acord, fără nume.
+- **Statusuri pentru propuneri:** Nouă, În discuție, Aleasă, Respinsă, plus o notă publică a trainerului. Autorul primește notificare la fiecare schimbare.
+- **Mod proiector:** trainerul arată propunerile pe ecran mare, una câte una, în ordinea voturilor (← → și Esc).
+- **Export CSV:** toate propunerile, cu voturi și status, într-un fișier care se deschide în Excel.
+- **Limită de retușări AI:** fiecare student are maximum 20 de retușări cu Claude pe zi (`CUTIA_REFINE_PER_DAY`), ca să ții costul sub control.
+- **Mod demo:** cu `CUTIA_DEMO=1`, aplicația pornește cu un trainer, doi studenți, întrebări și propuneri fictive. Conturile apar pe pagina de intrare.
 
 - **Robotul de bun venit (3D):** un robot construit în Three.js urcă pe ecran, îți face cu mâna, te urmărește cu privirea și îți spune „Salut, Madalina!”. După 7 secunde se deschide interfața (sau apeși „Sari peste”). Se poate opri din Setări și nu apare dacă ai animațiile oprite.
 - **Propunerile mele:** trimiți câte propuneri vrei și le vezi pe toate într-un loc. O propunere se poate **retrage** (de exemplu „✓ Am rezolvat problema”, cu un mesaj opțional): iese din cutia publică, dar autorul și trainerul o văd în continuare, iar autorul o poate pune înapoi oricând.
@@ -106,6 +122,8 @@ Deschide http://localhost:8000.
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | – | Notificările push. Le generezi o dată cu `python -m src.webpush`. |
 | `GITHUB_TOKEN` | – | Opțional, pentru „Verifică repo-ul”: un token doar de citire ridică limita GitHub de la 60 la 5000 de cereri pe oră. |
 | `CUTIA_AI` | `auto` | `auto` / `on` / `off` |
+| `CUTIA_REFINE_PER_DAY` | `20` | Câte retușări cu Claude are un student pe zi. |
+| `CUTIA_DEMO` | `0` | `1` = conturi și date fictive pentru prezentare. Doar fără Supabase și doar pe o bază goală. Nu-l porni pe aplicația live. |
 | `CUTIA_MODEL` | `claude-opus-5-5` | Modelul Claude. |
 | `CUTIA_DATA` | `data/cutia.json` | Unde se salvează datele. |
 | `CUTIA_UPLOADS` | `data/uploads` | Unde se salvează fișierele încărcate. |
